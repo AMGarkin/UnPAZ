@@ -12,15 +12,15 @@ using namespace BDO;
 
 /// ***** FileEntry Structure ***** ///
 FileEntry::FileEntry() :
-    uiFileHash(0),
-    uiFolderNum(0),
-    uiFileNum(0),
-    uiPazNum(0),
-    uiOffset(0),
-    uiCompressedSize(0),
-    uiOriginalSize(0),
-    sFileName(""),
-    sFilePath("")
+	uiFileHash(0),
+	uiFolderNum(0),
+	uiFileNum(0),
+	uiPazNum(0),
+	uiOffset(0),
+	uiCompressedSize(0),
+	uiOriginalSize(0),
+	sFileName(""),
+	sFilePath("")
 	{};
 
 
@@ -28,16 +28,17 @@ FileEntry::FileEntry() :
 
 ///constructor
 BDOFile::BDOFile() :
-    IceKey(0),
-    bQuiet(false),
-    bNoFolders(false),
-    bYesToAll(false),
-    bRenameFiles(false),
-    bOverwriteFiles(false),
-    bCreatePath(false),
-    vFilesTable(),
-    mPazNames(),
-    ArchivePath()
+	IceKey(0),
+	bQuiet(false),
+	bNoFolders(false),
+	bYesToAll(false),
+	bRenameFiles(false),
+	bOverwriteFiles(false),
+	bCreatePath(false),
+	bMobile(false),
+	vFilesTable(),
+	mPazNames(),
+	ArchivePath()
 {
 	const unsigned char decrypction_key[8] = { 0x51, 0xF3, 0x0F, 0x11, 0x04, 0x24, 0x6A, 0x00 }; /// The Black Desert ICE decryption key
 	this->set(decrypction_key);
@@ -105,9 +106,9 @@ uint32_t BDOFile::ExtractFileMask(std::string sFileMask, fs::path OutputPath)
 		if (WildMatch(sFileMask, it->sFilePath)) {
 			fs::path FilePath = OutputPath;
 
-            if (this->GetNoFolders()) {
+			if (this->GetNoFolders()) {
 				FilePath /= it->sFileName;
-            } else {
+			} else {
 				FilePath /= it->sFilePath;
 			}
 
@@ -228,6 +229,15 @@ void BDOFile::SetArchivePath(fs::path ArchivePath)
 	this->mPazNames.clear();
 }
 
+bool BDOFile::GetMobile()
+{
+	return this->bMobile;
+}
+
+void BDOFile::SetMobile(bool bMobile)
+{
+	this->bMobile = bMobile;
+}
 
 ///protected functions
 void BDOFile::exitError(int errCode, std::string sDetail) {
@@ -320,8 +330,10 @@ fs::path BDOFile::GetPazName(uint32_t uiPazNum)
 ///Private functions
 void BDOFile::internalExtractFile(fs::path FilePath, fs::path PazName, uint32_t uiOffset, uint32_t uiCompressedSize, uint32_t uiOriginalSize)
 {
-	if (uiCompressedSize % 8 != 0)
-		this->exitError(-4);
+	if (!this->GetMobile()) {
+		if (uiCompressedSize % 8 != 0)
+			this->exitError(-4);
+	}
 
 	///make sure that output folder exists
 	if (FilePath.has_parent_path() && !fs::exists(FilePath.parent_path())) {
@@ -374,33 +386,58 @@ void BDOFile::internalExtractFile(fs::path FilePath, fs::path PazName, uint32_t 
 		}
 
 		///decrypt data
-		uint8_t *encrypted = new uint8_t[uiCompressedSize];
-		if (encrypted == 0) exitError(-3);
 		uint8_t *decrypted = new uint8_t[uiCompressedSize];
 		if (decrypted == 0) exitError(-3);
 
 		ifsPazFile.seekg(uiOffset);
-		ifsPazFile.read(reinterpret_cast<char *>(encrypted), uiCompressedSize);
 
-		this->ICEdecrypt(encrypted, decrypted, uiCompressedSize);
-		delete[] encrypted;
+		if (!this->GetMobile()) {
+			uint8_t *encrypted = new uint8_t[uiCompressedSize];
+			if (encrypted == 0) exitError(-3);
 
-		///check if data have header, valid header is 9 bytes long and contains:
-		///- ID (unit8_t) = 0x6E for uncompressed data or 0x6F for compressed data
-		///- data size (uint32_t)
-		///- original file size (unit32_t)
-		if ((decrypted[0] == 0x6F || decrypted[0] == 0x6E) && uiCompressedSize > 9) {
-			uint32_t uiSize = 0;
-			memcpy(&uiSize, decrypted + 1 + 4, 4);	///copy original file size from decrypted data
-			if (uiSize == uiOriginalSize) {			///We can consider data header as valid. Size in data header is the same as size in .meta/.paz file.
+			ifsPazFile.read(reinterpret_cast<char *>(encrypted), uiCompressedSize);
+			this->ICEdecrypt(encrypted, decrypted, uiCompressedSize);
+
+			delete[] encrypted;
+
+			///check if data have header, valid header is 9 bytes long and contains:
+			///- ID (unit8_t) = 0x6E for uncompressed data or 0x6F for compressed data
+			///- data size (uint32_t)
+			///- original file size (unit32_t)
+			if ((decrypted[0] == 0x6F || decrypted[0] == 0x6E) && uiCompressedSize > 9) {
+				uint32_t uiSize = 0;
+				memcpy(&uiSize, decrypted + 1 + 4, 4);	///copy original file size from decrypted data
+				if (uiSize == uiOriginalSize) {			///We can consider data header as valid. Size in data header is the same as size in .meta/.paz file.
+					uint8_t *decompressed = new uint8_t[uiOriginalSize];
+					if (decompressed == 0) exitError(-3);
+
+					BDO::decompress(decrypted, decompressed);
+					delete[] decrypted;
+					decrypted = decompressed;
+				}
+			}
+		} else {
+			ifsPazFile.read(reinterpret_cast<char *>(decrypted), uiCompressedSize);
+
+			if (uiOriginalSize != uiCompressedSize) {
 				uint8_t *decompressed = new uint8_t[uiOriginalSize];
 				if (decompressed == 0) exitError(-3);
 
-				BDO::decompress(decrypted, decompressed);
-				delete[] decrypted;
-				decrypted = decompressed;
+				int result = uncompress(decompressed, reinterpret_cast<uLongf *>(&uiOriginalSize), decrypted, uiCompressedSize);
+
+				if (result == Z_OK) {
+					delete[] decrypted;
+					decrypted = decompressed;
+				} else if (result == Z_MEM_ERROR) {
+					exitError(-5, "zlib - Not enough memory.");
+				} else if (result == Z_BUF_ERROR) {
+					exitError(-5, "zlib - Output buffer is too small.");
+				} else if (result == Z_DATA_ERROR) {
+					exitError(-5, "zlib - Input data are corrupted or incomplete.");
+				}
 			}
 		}
+
 
 		ofsFile.write(reinterpret_cast<char *>(decrypted), uiOriginalSize);
 		ofsFile.close();
@@ -415,18 +452,18 @@ void BDOFile::internalExtractFile(fs::path FilePath, fs::path PazName, uint32_t 
 /// ***** MetaFile class ***** ///
 ///constructor
 MetaFile::MetaFile() :
-    uiClientVersion(0),
-    uiFilesCount(0),
-    uiFileNamesCount(0),
-    uiFoldersCount(0)
+	uiClientVersion(0),
+	uiFilesCount(0),
+	uiFileNamesCount(0),
+	uiFoldersCount(0)
 {
 }
 
 MetaFile::MetaFile(fs::path FileName, bool bQuiet) :
-    uiClientVersion(0),
-    uiFilesCount(0),
-    uiFileNamesCount(0),
-    uiFoldersCount(0)
+	uiClientVersion(0),
+	uiFilesCount(0),
+	uiFileNamesCount(0),
+	uiFoldersCount(0)
 {
 	this->SetQuiet(bQuiet);
 
@@ -506,7 +543,13 @@ void MetaFile::ReadSource(fs::path FileName)
 
 	ifsMetaFile.read(reinterpret_cast<char *>(pFolderNamesEncrypted), uiFolderNamesLength);
 
-	this->ICEdecrypt(pFolderNamesEncrypted, pFolderNamesDecrypted, uiFolderNamesLength);
+	///test if meta file is from BDO mobile (names are not encrypted and all folder names starts with "res/")
+	if (pFolderNamesEncrypted[8] == 'r' && pFolderNamesEncrypted[9] == 'e' && pFolderNamesEncrypted[10] == 's') {
+		this->SetMobile(true);
+		memcpy(pFolderNamesDecrypted, pFolderNamesEncrypted, uiFolderNamesLength);
+	} else {
+		this->ICEdecrypt(pFolderNamesEncrypted, pFolderNamesDecrypted, uiFolderNamesLength);
+	}
 	delete[] pFolderNamesEncrypted;
 
 	ptr = pFolderNamesDecrypted;
@@ -528,15 +571,20 @@ void MetaFile::ReadSource(fs::path FileName)
 	ifsMetaFile.read(reinterpret_cast<char *>(readBuffer), 4);
 	memcpy(&uiFileNamesLength, readBuffer, 4);
 
-	pFileNamesEncrypted = new uint8_t[uiFileNamesLength];
-	if (pFileNamesEncrypted == 0) this->exitError(-3);
 	pFileNamesDecrypted = new uint8_t[uiFileNamesLength];
 	if (pFileNamesDecrypted == 0) this->exitError(-3);
 
-	ifsMetaFile.read(reinterpret_cast<char *>(pFileNamesEncrypted), uiFileNamesLength);
+	if (!this->GetMobile()) {
+		pFileNamesEncrypted = new uint8_t[uiFileNamesLength];
+		if (pFileNamesEncrypted == 0) this->exitError(-3);
 
-	ICEdecrypt(pFileNamesEncrypted, pFileNamesDecrypted, uiFileNamesLength);
-	delete[] pFileNamesEncrypted;
+		ifsMetaFile.read(reinterpret_cast<char *>(pFileNamesEncrypted), uiFileNamesLength);
+		ICEdecrypt(pFileNamesEncrypted, pFileNamesDecrypted, uiFileNamesLength);
+
+		delete[] pFileNamesEncrypted;
+	} else {
+		ifsMetaFile.read(reinterpret_cast<char *>(pFileNamesDecrypted), uiFileNamesLength);
+	}
 
 	ptr = pFileNamesDecrypted;
 	pEnd = ptr + uiFileNamesLength;
@@ -641,7 +689,13 @@ void PazFile::ReadSource(fs::path FileName)
 
 	ifsPazFile.read(reinterpret_cast<char *>(pNamesEncrypted), uiNamesLength);
 
-	this->ICEdecrypt(pNamesEncrypted, pNamesDecrypted, uiNamesLength);
+	///test if meta file is from BDO mobile (names are not encrypted and always starts with folder name "res/")
+	if (pNamesEncrypted[0] == 'r' && pNamesEncrypted[1] == 'e' && pNamesEncrypted[2] == 's') {
+		this->SetMobile(true);
+		memcpy(pNamesDecrypted, pNamesEncrypted, uiNamesLength);
+	} else {
+		this->ICEdecrypt(pNamesEncrypted, pNamesDecrypted, uiNamesLength);
+	}
 	delete[] pNamesEncrypted;
 
 	ptr = pNamesDecrypted;

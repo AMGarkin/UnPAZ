@@ -26,7 +26,7 @@ namespace {
 	///print version header
 	void printVersion()
 	{
-		cout << "Garkin's UnPAZ v1.1 - tool for extracting Black Desert Online archives.\n";
+		cout << "Garkin's UnPAZ v1.2 - tool for extracting Black Desert Online archives.\n";
 	}
 
 	///print help text

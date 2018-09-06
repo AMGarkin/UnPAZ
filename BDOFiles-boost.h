@@ -12,6 +12,7 @@
 #include "IceKey.h"
 #include "BDO.h"
 #include "Utility.h"
+#include "zlib.h"
 
 
 namespace BDO
@@ -53,6 +54,8 @@ namespace BDO
 		void SetNoFolders(bool bNoFolders);
 		bool GetYesToAll();
 		void SetYesToAll(bool bYesToAll);
+		bool GetMobile();
+		void SetMobile(bool bMobile);
 		boost::filesystem::path GetArchivePath();
 		void SetArchivePath(boost::filesystem::path ArchivePath);
 	protected:
@@ -75,6 +78,7 @@ namespace BDO
 		bool bRenameFiles;
 		bool bOverwriteFiles;
 		bool bCreatePath;
+		bool bMobile;
 		boost::filesystem::path ArchivePath;
 	};
 
